@@ -59,7 +59,7 @@ public:
 	//修改资源的版本信息，arrFileVer和arrProdVer是指定文件和产品版本的数组，指针为空表示不修改
 	BOOL UpdateResVersion(DWORD* arrFileVer, DWORD* arrProdVer);
 	//修改RCDATA节点，也就是捆入安装文件的各个cab包
-	BOOL UpdateResRCData(DWORD dwId, LPCWSTR lpszDataPath);
+	BOOL UpdateResRCData(LPCWSTR lpszResID, LPCWSTR lpszResType, LPCWSTR lpszDataPath);
 
 	//设置安装包的类型，可以是静默/带hips/带病毒库/推广等标志位的组合，具体定义见本头文件顶部
 	//具体实现是改写Version资源里的SpecialBulid字段

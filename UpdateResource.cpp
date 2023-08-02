@@ -26,12 +26,13 @@ struct UPDATE_INFO
 	TCHAR szFileVersion[64];
 	TCHAR szProduction[64];
 	BOOL bAutoIncVersion;
+	TCHAR szExeResPath[MAX_PATH];
 };
 
 void PringUsage()
 {
 	printf("UpdateVersion /s c:\\windows\\notopad.exe /f 1.0.0.1 /p 1.0.0.1\n"
-		"/s : file path /f : file version /p : product version\n"
+		"/s : file path /f : file version /p : product version /r exeres file path\n"
 		"为空则保留原有值.\n");
 	exit(-1);
 }
@@ -90,6 +91,11 @@ bool ParseCmdLine(int _Argc, wchar_t ** _Argv, UPDATE_INFO &UpdateInfo)
 		{
 			UpdateInfo.bAutoIncVersion = TRUE;
 		}
+		else if (lstrcmpi(*pArg, _T("/r")) == 0)
+		{
+			StringCchCopy(UpdateInfo.szExeResPath, sizeof(UpdateInfo.szExeResPath), *++pArg);
+			_tprintf(_T("exeres file path %s\n"), *pArg);
+		}
 	}
 	return bParseSucc;
 }
@@ -137,8 +143,16 @@ int wmain(int _Argc, wchar_t ** _Argv)
 	}
 
 	bool bret = PEInfo.UpdateResVersion(FileVerNums, ProVerNums);
-	PEInfo.Close(TRUE);
 	printf("update version %s\n", bret ? "succ" : "failure");
+	
+	bool bReplaceExeRes = lstrlen(UpdateInfo.szExeResPath) > 0;
+
+	if (bReplaceExeRes) {
+		bret = PEInfo.UpdateResRCData(L"IDR_EXERES1", L"EXERES", UpdateInfo.szExeResPath);
+		printf("update rcdata %s\n", bret ? "succ" : "failure");
+	}
+
+	PEInfo.Close(TRUE);
 
 	return bret ? 0 : -1;
 }

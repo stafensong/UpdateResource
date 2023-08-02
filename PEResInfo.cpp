@@ -45,6 +45,7 @@ BOOL CPEResInfo::Open(LPCWSTR lpszExePath)
 	}
 	else
 	{
+		auto last_err = ::GetLastError();
 		StringCbPrintfW(szLogDesc, sizeof(szLogDesc), L"为获取字符串信息加载%s失败", lpszExePath);
 		return FALSE;
 	}
@@ -230,7 +231,7 @@ DWORD CPEResInfo::ResId2GroupId(DWORD dwResId)
 	return dwResId/16 + 1;
 }
 
-BOOL CPEResInfo::UpdateResRCData(DWORD dwId, LPCWSTR lpszDataPath)
+BOOL CPEResInfo::UpdateResRCData(LPCWSTR lpszResID, LPCWSTR lpszResType, LPCWSTR lpszDataPath)
 {
 	BOOL bRet = FALSE;
 	if (NULL==m_hExeFile)
@@ -272,8 +273,8 @@ BOOL CPEResInfo::UpdateResRCData(DWORD dwId, LPCWSTR lpszDataPath)
 	CloseHandle(hFile);
 	// 数据已经准备好，可以合到资源里去了
 	bRet = UpdateResourceW(m_hExeFile
-		, RT_RCDATA
-		, MAKEINTRESOURCEW(dwId)
+		, lpszResType
+		, lpszResID
 		, m_wLangID
 		, pData
 		, cbSize
