@@ -3,6 +3,8 @@
 
 
 #include <map>
+#include <string>
+using namespace std;
 
 // 用于日志中显示的本模块的名字
 #define MODULE_NAME_PERESINFO  L"res"
@@ -51,6 +53,9 @@ public:
 	BOOL Open(LPCWSTR lpszExePath); //打开一个exe文件
 	BOOL Close(BOOL bSaveChange);  //关闭exe文件，可以指定是不是要保存修改
 
+	// 获取资源String，并缓存
+	BOOL GetResString(DWORD dwId, wstring &str);
+
 	//修改字符串资源。为了能支持写特定长度(例如即便字符串长为4也要写10个字符)，你必须要传入cchLen来指定要写入的字符数。
 	//当然，你可以指定cchLen为0，函数将使用\0作为字符串结尾计算写入的长度
 	//这个函数只修改内存里的缓存，不真正提交到PE文件
@@ -66,6 +71,8 @@ public:
 	BOOL SetInstallerType(DWORD dwTypeFlag);
 
 	static CString GetFileVersion( const CString& strFilePath, DWORD *pdwV1 /*= 0*/, DWORD *pdwV2 /*= 0*/, DWORD *pdwV3 /*= 0*/, DWORD *pdwV4 /*= 0*/ );
+
+	CHAR* GetLastErrorMsg() { return m_szLastError;  }
 private:
 	void SendLog(DWORD dwType, LPCWSTR lpDesc);
 	// 为了尽量不干扰BeginUpdateResource等函数的动作，在打开一个PE修改前，先把需要的其他信息都缓存出来
@@ -83,4 +90,6 @@ private:
 	UPDATE_VERSION_RES_INFO m_verInfo; //缓存起来的VersionInfo相关信息
 	BOOL m_bVerInfoModified;
 	std::map<DWORD, STRING_RES> m_mapStringInfo; // 缓存起来的StringInfo，每个Group占用map一个item
+	CHAR m_szLastError[MAX_PATH] = {0};
+	DWORD m_dwLastError = 0;
 };

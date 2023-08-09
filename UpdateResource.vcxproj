@@ -155,7 +155,7 @@
     </ResourceCompile>
     <Link>
       <AdditionalDependencies>version.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <OutputFile>.\Release/UpdateVersion.exe</OutputFile>
+      <OutputFile>$(Platform)\$(Configuration)\$(ProjectName).exe</OutputFile>
       <SuppressStartupBanner>true</SuppressStartupBanner>
       <ProgramDatabaseFile>.\Release/UpdateVersion.pdb</ProgramDatabaseFile>
       <SubSystem>Console</SubSystem>

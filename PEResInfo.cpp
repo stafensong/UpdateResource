@@ -31,25 +31,6 @@ BOOL CPEResInfo::Open(LPCWSTR lpszExePath)
 		StringCbPrintfW(szLogDesc, sizeof(szLogDesc), L"获取%s的版本资源信息失败", lpszExePath);
 	}
 
-	// 字符串的信息
-	HMODULE hMod = LoadLibraryW(lpszExePath);
-	if (hMod)
-	{
-		// 我们目前只关心这两个字符串的信息
-		DWORD dwGroupId = ResId2GroupId(IDS_STRING_BUILD_DATE);
-		InnerGetStringInfo(hMod, dwGroupId);
-		// 目前这两个字符串在一个Group里，所以Get一次就可以了
-		dwGroupId = ResId2GroupId(IDS_STRING_MAX_DAYS);
-		InnerGetStringInfo(hMod, dwGroupId);
-		FreeLibrary(hMod);
-	}
-	else
-	{
-		auto last_err = ::GetLastError();
-		StringCbPrintfW(szLogDesc, sizeof(szLogDesc), L"为获取字符串信息加载%s失败", lpszExePath);
-		return FALSE;
-	}
-
 	m_hExeFile = BeginUpdateResourceW(lpszExePath, FALSE);
 	if (NULL==m_hExeFile)
 	{
@@ -67,10 +48,6 @@ BOOL CPEResInfo::Close(BOOL bSaveChange)
 	BOOL bRet = TRUE;
 	if (m_hExeFile)
 	{
-		// 先把缓存的字符串和版本资源都提交
-		InnerUpdateResString();
-		InnerUpdateVerInfo();
-
 		// 把整个PE的修改提交
 		BOOL bUpdateRet = EndUpdateResourceW(m_hExeFile, !bSaveChange);
 		if (bUpdateRet)
@@ -88,6 +65,7 @@ BOOL CPEResInfo::Close(BOOL bSaveChange)
 		}
 		else
 		{
+			m_dwLastError = ::GetLastError();
 			if (bSaveChange)
 			{
 				WCHAR szDesc[MAX_PATH + 20] = { 0 };
@@ -124,7 +102,51 @@ BOOL CPEResInfo::Close(BOOL bSaveChange)
 		}
 		m_mapStringInfo.clear();
 	}
+
 	return bRet;
+}
+
+namespace {
+LPCWSTR GetString(DWORD dwId, const STRING_RES& res, DWORD& len) {
+	LPBYTE pBegin = res.pData;
+	DWORD cbOrigDataSize = res.cbDataSize;
+
+	// ID是dwId的字符串起始偏移
+	DWORD dwPreOffset=0;
+
+	// 先定位到我们要修改的字符串上
+	for (DWORD i=0; i<dwId - (res.dwGroupId-1)*16; i++)
+	{
+		len = 0;
+		// 定位到长度字段
+		memcpy(&len, pBegin+dwPreOffset, 2);
+		// 向后移动相应的长度，到下一个字符串
+		dwPreOffset += len*2 + 2;
+	}
+	// 拿到当前字符串长度
+	memcpy(&len, pBegin+dwPreOffset, 2);
+	return (LPCWSTR)(pBegin + dwPreOffset + 2);
+}
+} // namespace
+
+
+BOOL CPEResInfo::GetResString(DWORD dwId, wstring& str) {
+	WCHAR szLogDesc[MAX_PATH + 20] = { 0 };
+	auto hMod = LoadLibraryW(m_szCurExePath);
+	if (!hMod) {
+		return FALSE;
+	}
+	// 我们目前只关心这两个字符串的信息
+	DWORD dwGroupId = ResId2GroupId(dwId);
+	auto ret = InnerGetStringInfo(hMod, dwGroupId);
+	if (ret) {
+		auto &res = m_mapStringInfo[dwGroupId];
+		DWORD len = 0;
+		auto val = GetString(dwId, res, len);
+		str.assign(val, len);
+	}
+	FreeLibrary(hMod);
+	return ret;
 }
 
 BOOL CPEResInfo::InnerGetVerInfo(LPCWSTR lpszExePath)
@@ -236,10 +258,10 @@ BOOL CPEResInfo::UpdateResRCData(LPCWSTR lpszResID, LPCWSTR lpszResType, LPCWSTR
 	BOOL bRet = FALSE;
 	if (NULL==m_hExeFile)
 	{
+		StringCbPrintfA(m_szLastError, sizeof(m_szLastError), "exe file null");
 		return FALSE;
 	}
 	// 先把文件读入内存
-	WCHAR szLogDesc[MAX_PATH + 30] = { 0 };
 	LPBYTE pData = NULL;
 	DWORD cbSize = 0, dwHasDone = 0;
 	HANDLE hFile = INVALID_HANDLE_VALUE;
@@ -253,20 +275,23 @@ BOOL CPEResInfo::UpdateResRCData(LPCWSTR lpszResID, LPCWSTR lpszResType, LPCWSTR
 		);
 	if (INVALID_HANDLE_VALUE==hFile)
 	{
-		StringCbPrintfW(szLogDesc, sizeof(szLogDesc), L"尝试打开原始资源%s失败", lpszDataPath);
+		m_dwLastError = ::GetLastError();
+		StringCbPrintfA(m_szLastError, sizeof(m_szLastError), "CreateFileW fail. %d", m_dwLastError);
 		return FALSE;
 	}
 	cbSize = GetFileSize(hFile, NULL);
 	pData = (LPBYTE)malloc(cbSize);
 	if (NULL==pData)
 	{
-		StringCbPrintfW(szLogDesc, sizeof(szLogDesc), L"读取原始资源%s分配内存失败", lpszDataPath);
+		m_dwLastError = ::GetLastError();
+		StringCbPrintfA(m_szLastError, sizeof(m_szLastError), "malloc fail. %d", m_dwLastError);
 		CloseHandle(hFile);
 		return FALSE;
 	}
 	if (FALSE==ReadFile(hFile, pData, cbSize, &dwHasDone, NULL) || dwHasDone!=cbSize)
 	{
-		StringCbPrintfW(szLogDesc, sizeof(szLogDesc), L"读取原始资源文件%s失败", lpszDataPath);
+		m_dwLastError = ::GetLastError();
+		StringCbPrintfA(m_szLastError, sizeof(m_szLastError), "ReadFile fail. %d", m_dwLastError);
 		CloseHandle(hFile);
 		return FALSE;
 	}
@@ -279,12 +304,40 @@ BOOL CPEResInfo::UpdateResRCData(LPCWSTR lpszResID, LPCWSTR lpszResType, LPCWSTR
 		, pData
 		, cbSize
 		);
+	if (!bRet) {
+		m_dwLastError = ::GetLastError();
+		StringCbPrintfA(m_szLastError, sizeof(m_szLastError), "UpdateResourceW fail. %d", m_dwLastError);
+	}
 	free(pData);
 	return bRet;
 }
 
 BOOL CPEResInfo::UpdateResString(DWORD dwId, LPCWSTR lpNewValue, DWORD cchLen)
 {
+	// 校验参数
+	BOOL bRet = FALSE;
+	if (0==cchLen) {
+		cchLen = wcslen(lpNewValue);
+		if (0==cchLen) {
+			return FALSE;
+		}
+	}
+
+	// 更新前先读取到缓存，后续判断group时新增还是更新
+	WCHAR szLogDesc[MAX_PATH + 20] = { 0 };
+	auto hMod = LoadLibraryW(m_szCurExePath);
+	if (hMod)
+	{
+		DWORD dwGroupId = ResId2GroupId(dwId);
+		InnerGetStringInfo(hMod, dwGroupId);
+		FreeLibrary(hMod);
+	}
+	else
+	{
+		auto last_err = ::GetLastError();
+		StringCbPrintfW(szLogDesc, sizeof(szLogDesc), L"为获取字符串信息加载%s失败", m_szCurExePath);
+		return FALSE;
+	}
 	// 字符串资源RT_STRING由一个一个的Group组成，每个Group有16个String，字符用Unicode编码存储
 	// 每个String由字符串长度(用2个字节存储长度) + 字符串本身(每个字符2个字节)构成
 	// 例如字符串“123”，其存储方式为
@@ -292,16 +345,7 @@ BOOL CPEResInfo::UpdateResString(DWORD dwId, LPCWSTR lpNewValue, DWORD cchLen)
 	// <长度>   <---字符串本身--->
 	// 如果所有字符串都为空，那么一个Group至少应该有2*16字节，全部都是0
 
-	BOOL bRet = FALSE;
-	if (0==cchLen)
-	{
-		cchLen = wcslen(lpNewValue);
-		if (0==cchLen)
-		{
-			return FALSE;
-		}
-	}
-	WCHAR szLogDesc[MAX_PATH + 20] = { 0 };
+
 	DWORD dwGroup = ResId2GroupId(dwId);
 	std::map<DWORD, STRING_RES>::iterator itFind;
 	itFind = m_mapStringInfo.find(dwGroup);
@@ -398,6 +442,10 @@ BOOL CPEResInfo::UpdateResString(DWORD dwId, LPCWSTR lpNewValue, DWORD cchLen)
 		{
 			StringCbPrintfW(szLogDesc, sizeof(szLogDesc), L"更新字符串Group %u时分配内存失败", dwGroup);
 		}
+	}
+
+	if (bRet) {
+		bRet = InnerUpdateResString();
 	}
 	return bRet;
 }
@@ -525,7 +573,11 @@ BOOL CPEResInfo::UpdateResVersion(DWORD* arrFileVer, DWORD* arrProdVer)
 			}
 		}
 	}
-	return m_bVerInfoModified;
+	BOOL ret = FALSE;
+	if (m_bVerInfoModified) {
+		ret = InnerUpdateVerInfo();
+	}
+	return ret;
 }
 
 BOOL CPEResInfo::InnerUpdateResString()
